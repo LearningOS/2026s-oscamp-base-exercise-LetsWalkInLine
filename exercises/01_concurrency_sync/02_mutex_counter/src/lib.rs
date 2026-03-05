@@ -20,7 +20,23 @@ pub fn concurrent_counter(n_threads: usize, count_per_thread: usize) -> usize {
     // TODO: Spawn n_threads threads
     // TODO: In each thread, lock() and increment count_per_thread times
     // TODO: Join all threads, return final value
-    todo!()
+    let counter = Arc::new(Mutex::new(0));
+    let mut handles = Vec::new();
+    for _ in 0..n_threads {
+        let c_counter = Arc::clone(&counter);
+        handles.push(thread::spawn(move || {
+            for _ in 0..count_per_thread {
+                *c_counter.lock().unwrap() += 1;
+            }
+        }));
+    }
+    handles.into_iter().for_each(|h| h.join().unwrap());
+    // 所有线程都结束后可以直接收回所有权和锁，不必再lock
+    // 1. Arc::try_unwrap(counter) 尝试剥离 Arc，成功返回 Ok(Mutex)，失败返回 Err(Arc)。
+    //    这里一定成功，所以 unwrap() 拿到 Mutex。
+    // 2. .into_inner() 消耗掉 Mutex（不需要 lock），得到 LockResult<usize>。
+    // 3. .unwrap() 处理 LockResult，最终得到内部的 usize
+    Arc::try_unwrap(counter).unwrap().into_inner().unwrap()
 }
 
 /// Add elements to a shared vector concurrently using multiple threads.
@@ -32,7 +48,20 @@ pub fn concurrent_collect(n_threads: usize) -> Vec<usize> {
     // TODO: Create Arc<Mutex<Vec<usize>>>
     // TODO: Each thread pushes its own id
     // TODO: After joining all threads, sort the result and return
-    todo!()
+    let mutex = Arc::new(Mutex::new(Vec::with_capacity(n_threads)));
+    let mut handles = Vec::with_capacity(n_threads);
+    for id in 0..n_threads {
+        let c_mutex = Arc::clone(&mutex);
+        handles.push(thread::spawn(move || {
+            c_mutex.lock().unwrap().push(id);
+        }));
+    }
+
+    handles.into_iter().for_each(|h| h.join().unwrap());
+
+    let mut ans = Arc::try_unwrap(mutex).unwrap().into_inner().unwrap();
+    ans.sort();
+    ans
 }
 
 #[cfg(test)]
