@@ -103,7 +103,7 @@ impl Sv39PageTable {
     /// 提示：右移 (12 + level * 9) 位，然后与 0x1FF 做掩码。
     pub fn extract_vpn(va: u64, level: usize) -> usize {
         // TODO: 从虚拟地址中提取指定级别的 VPN 索引
-        todo!()
+        (va >> ((12 + level * 9) & 0x1FF)) as usize
     }
 
     /// 建立从虚拟页到物理页的映射（4KB 页）。
@@ -119,6 +119,15 @@ impl Sv39PageTable {
         // 对于中间层级（level 2 和 level 1），如果对应 VPN 的页表项（PTE）无效（PTE_V == 0），
         // 则需要分配一个新的页表节点（使用 alloc_node），并将新节点的 PPN 写入当前 PTE（仅设置 PTE_V 标志）。
         // 最后在 level 0 的 PTE 中写入目标物理页号（pa >> 12）和 flags。
+        let root_page = self.nodes.get(&self.root_ppn).unwrap();
+        let mut root_pte = root_page.entries[Self::extract_vpn(va, 2)];
+        if root_pte & PTE_V == 0 {
+            let new_ppn = self.alloc_node();
+            root_pte = (new_ppn << PPN_SHIFT) | PTE_V;
+        }
+        let mid_pte = match self.nodes.get(&((root_pte >> PPN_SHIFT) & ((1 << 44) - 1))) {
+            _ => (),
+        };
         todo!()
     }
 
