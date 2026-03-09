@@ -40,7 +40,11 @@ impl FlagChannel {
     pub fn produce(&self, value: u32) {
         // TODO: Store data (choose appropriate Ordering)
         // TODO: Set ready = true (choose appropriate Ordering so data writes complete before this)
-        todo!()
+        // 先写入 `data`（普通数据，没有竞争，可以用 `Relaxed` 甚至普通写）。
+        // 然后对 `ready` 标志执行 `Store(true, Ordering::Release)`。
+        // 硬件保证：写入 `ready` 之前，`data` 的写入一定已经全局可见。
+        self.data.store(value, Ordering::Relaxed);
+        self.ready.store(true, Ordering::Release);
     }
 
     /// Consumer: spin-wait for ready flag, then read data.
@@ -51,7 +55,15 @@ impl FlagChannel {
     pub fn consume(&self) -> u32 {
         // TODO: Spin-wait for ready to become true (choose appropriate Ordering)
         // TODO: Read data (choose appropriate Ordering)
-        todo!()
+        // 在一个自旋循环中执行 `Load(Ordering::Acquire)` 读取 `ready` 标志。
+        // 一旦读到 `true`（建立同步边），退出循环。
+        // 接着读取 `data`（可以用 `Relaxed`）。
+        // 硬件保证：因为看到了 `ready == true`，此时再去读 `data`，
+        // 绝对不会读到旧值（由于屏障，Cache Line 失效等机制已经处理完毕）。
+        while !self.ready.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+        }
+        self.data.load(Ordering::Relaxed)
     }
 
     /// Reset channel state
@@ -83,13 +95,30 @@ impl OnceCell {
     pub fn init(&self, val: u32) -> bool {
         // TODO: Use compare_exchange to ensure initialization only once
         // Store value on success
-        todo!()
+        // 先尝试将 `initialized` 从 `false` 变为 `true`，使用 `compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)`。
+        // 如果成功（返回 Ok），说明当前线程是第一个调用 `init` 的线程，此时将 `value` 存储为 `val`。
+        // 如果失败（返回 Err），说明已经有线程成功初始化了，直接返回 false。
+        // compare_exchange特别地对应着指令集里的CAS指令
+        match self
+            .initialized
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        {
+            Ok(_) => {
+                self.value.store(val, Ordering::SeqCst);
+                return true;
+            }
+            Err(_) => return false,
+        }
     }
 
     /// Get value. Returns Some if initialized, otherwise None.
     pub fn get(&self) -> Option<u32> {
         // TODO: Check initialized flag, then read value
-        todo!()
+        // 那么这里我可以使用acquire吗，还是说继续用seqcst？我的想法是可以用acquire，但为了保险我先用seqcst
+        match self.initialized.load(Ordering::SeqCst) {
+            true => Some(self.value.load(Ordering::SeqCst)),
+            false => None,
+        }
     }
 }
 
