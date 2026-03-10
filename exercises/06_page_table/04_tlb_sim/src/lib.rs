@@ -130,7 +130,8 @@ impl Tlb {
             }
             None => {
                 // 哪种写法更好
-                let entry = self.entries.get_mut(self.fifo_ptr).unwrap();
+                // let entry = self.entries.get_mut(self.fifo_ptr).unwrap();
+                let entry = &mut self.entries[self.fifo_ptr]; //这种写法更好
                 entry.valid = true;
                 entry.vpn = vpn;
                 entry.ppn = ppn;
@@ -139,6 +140,7 @@ impl Tlb {
                 self.fifo_ptr = (self.fifo_ptr + 1) % self.capacity;
             }
         }
+        // 下面这种写法不好，副作用 (Side Effects) 与函数式编程的语义冲突、强行拼凑的Some(())是一种code smell
         // self.entries
         //     .iter_mut()
         //     .find(|entry| entry.valid && entry.vpn == vpn && entry.asid == asid)
@@ -252,18 +254,16 @@ impl Mmu {
     /// 5. 页表未命中 → 返回 None（缺页）
     pub fn translate(&mut self, vpn: u64) -> Option<u64> {
         // TODO: 实现 TLB + 页表的二级查找
-        if let Some(ppn) = self.tlb.lookup(vpn, self.current_asid) {
-            return Some(ppn);
-        }
-
-        let (_, page_map) = self
-            .page_table
-            .iter()
-            .find(|(p_asid, p_map)| *p_asid == self.current_asid && p_map.vpn == vpn)?;
-
-        self.tlb
-            .insert(vpn, page_map.ppn, self.current_asid, page_map.flags);
-        Some(page_map.ppn)
+        self.tlb.lookup(vpn, self.current_asid).or_else(|| {
+            let (_, page_map) = self
+                .page_table
+                .iter() //如果页表未命中，使用"?"让整个链条返回None
+                .find(|(p_asid, p_map)| *p_asid == self.current_asid && p_map.vpn == vpn)?;
+            // 回填TLB
+            self.tlb
+                .insert(vpn, page_map.ppn, self.current_asid, page_map.flags);
+            Some(page_map.ppn)
+        })
     }
 }
 
